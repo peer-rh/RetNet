@@ -1,0 +1,4 @@
+jax[cpu]
+datasets[jax]
+flax
+

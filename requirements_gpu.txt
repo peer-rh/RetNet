@@ -1,0 +1,3 @@
+jax[cuda12_pip]
+datasets[jax]
+flax
