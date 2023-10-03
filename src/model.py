@@ -30,20 +30,20 @@ class RetNet(nn.Module):
         Returns: (batch_size x seq_len x hidden_size)
         """
         for i in range(self.n_layers):
-            x = self.ret_blocks[i].forward_par(self.layer_norms_1[i](x)) + x
+            x = self.ret_blocks[i](self.layer_norms_1[i](x)) + x
             x = self.ffn_s[i](self.layer_norms_2[i](x)) + x
         return x
 
-    def forward_recursive(self, x: jax.Array, s_n_1: List[jax.Array], n: int) -> Tuple[jax.Array, List[jax.Array]]:
+    def forward_recurrent(self, x: jax.Array, s_n_1: List[jax.Array], n: int) -> Tuple[jax.Array, List[jax.Array]]:
         """
         x: (batch_size x hidden_size)
-        s_n_1: [(batch_size x hidden_size) x n_layers] - previous state
+        s_n_1: [n_layers x (batch_size x n_heads x head_size x head_size)] - previous state
 
-        Returns: (batch_size x hidden_size) x [(batch_size x hidden_size) x n_layers]
+        Returns: (batch_size x hidden_size), [n_layers x (batch_size x n_heads x head_size x head_size)]
         """
         s_n = []
         for i in range(self.n_layers):
-            y, s_i = self.ret_blocks[i].forward_rec(self.layer_norms_1[i](x), s_n_1[i], n)
+            y, s_i = self.ret_blocks[i].forward_recurrent(self.layer_norms_1[i](x), s_n_1[i], n)
             s_n.append(s_i)
             x = y + x
             x = self.ffn_s[i](self.layer_norms_2[i](x)) + x
@@ -52,13 +52,13 @@ class RetNet(nn.Module):
     def forward_chunkwise(self, x: jax.Array, s_n_1: List[jax.Array], n: int) -> Tuple[jax.Array, List[jax.Array]]:
         """
         x: (batch_size x chunk_size x hidden_size)
-        s_n_1: [(batch_size x hidden_size) x n_layers] - previous state
+        s_n_1: [n_layers x (batch_size x n_heads x head_size x head_size)] - previous state
 
-        Returns: (batch_size x chunk_size x hidden_size) x [(batch_size x hidden_size) x n_layers]
+        Returns: (batch_size x chunk_size x hidden_size) x [n_layers x (batch_size x n_heads x head_size x head_size)]
         """
         s_n = []
         for i in range(self.n_layers):
-            y, s_i = self.ret_blocks[i].forward_chunk(self.layer_norms_1[i](x), s_n_1[i], n)
+            y, s_i = self.ret_blocks[i].forward_chunkwise(self.layer_norms_1[i](x), s_n_1[i], n)
             s_n.append(s_i)
             x = y + x
             x = self.ffn_s[i](self.layer_norms_2[i](x)) + x

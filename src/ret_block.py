@@ -5,7 +5,6 @@ import flax.linen as nn
 
 from src.util import XPos
 
-# TODO: Check that all sizes are correct
 class RetBlock(nn.Module):
     hidden_size: int
     head_size: int
@@ -34,51 +33,57 @@ class RetBlock(nn.Module):
         """
         decay_mask = self._create_decay(x.shape[1])
         decay_mask = jnp.expand_dims(decay_mask, 0)
+
         q = self.xpos(x @ self.w_q) # (batch_size x seq_len x head_size)
         k = self.xpos(x @ self.w_k, downscale=True) # ...
         v = x @ self.w_v # ...
+
         ret = (q @ k.transpose(0, 2, 1)) * decay_mask # (batch_size x seq_len x seq_len)
+
         ret = ret @ v # (batch_size x seq_len x head_size)
         return ret
     
-    def ret_recurrent(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
+    def forward_recurrent(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
         """
-        x: (batch_size x hidden_size)
-        s_n_1: (batch_size x head_size) - previous state
+        x: (batch_size x 1 x hidden_size)
+        s_n_1: (batch_size x head_size x head_size) - previous state
         n: int - current timestep
 
-        Returns: (batch_size x head_size), (batch_size x head_size)
+        Returns: (batch_size x 1 x head_size), (batch_size x head_size x head_size)
         """
-        q = self.xpos(x @ self.w_q, n+1) # (batch_size x head_size)
+        q = self.xpos(x @ self.w_q, n+1) # (batch_size x 1 x head_size)
         k = self.xpos(x @ self.w_k, n+1, downscale=True) # ...
         v = x @ self.w_v # ...
 
-        s_n = self.gamma * s_n_1 + k.T * v # (batch_size x head_size)
-        out = q * s_n # (batch_size x head_size)
+
+        s_n = self.gamma * s_n_1 + (k.transpose(0, 2, 1) @ v) # (batch_size x head_size x head_size)
+
+        out = q @ s_n # (batch_size x 1 x head_size)
+
         return out, s_n 
         
-    def ret_chunkwise(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
+    def forward_chunkwise(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
         """
         x: (batch_size x chunk_size x hidden_size)
-        s_n_1: (batch_size x head_size) - previous state
+        s_n_1: (batch_size x head_size x head_size) - previous state
 
-        Returns: (batch_size x chunk_size x head_size), (batch_size x head_size)
+        Returns: (batch_size x chunk_size x head_size), (batch_size x head_size x head_size)
         """
         decay_mask = self._create_decay(x.shape[1])
-        zeta = jnp.tile(jnp.power(jnp.full((x.shape[0]), self.gamma), jnp.arange(0, x.shape[1]-1, -1)), self.hidden_size).T
-        xi = jnp.tile(jnp.power(jnp.full((x.shape[0]), self.gamma), jnp.arange(x.shape[0]+1, 1)), self.hidden_size).T
 
         q = self.xpos(x @ self.w_q, n*x.shape[1]) # (batch_size x chunk_size x head_size)
         k = self.xpos(x @ self.w_k, n*x.shape[1], downscale=False) # ...
         v = x @ self.w_v # ...
         
-        s_n = k.T @ (v * zeta) + self.gamma**x.shape[1] * s_n_1 # (batch_size x head_size)
-        inner_chunk = (q @ k.T) * decay_mask # (batch_size x chunk_size x chunk_size)
+        zeta = jnp.expand_dims(decay_mask[-1], (0, 2))    
+        s_n = k.transpose(0, 2, 1) @ (v * zeta) + self.gamma**x.shape[1] * s_n_1 # (batch_size x head_size x head_size)
+        inner_chunk = (q @ k.transpose(0, 2, 1)) * jnp.expand_dims(decay_mask, 0) # (batch_size x chunk_size x chunk_size)
         inner_chunk = inner_chunk @ v # (batch_size x chunk_size x head_size)
 
+        xi = jnp.repeat(jnp.expand_dims(self.gamma ** jnp.arange(1, x.shape[1]+1), (0, 2)), x.shape[0], 0)
         cross_chunk = (q @ s_n_1) * xi # (batch_size x chunk_size x head_size)
         out = inner_chunk + cross_chunk # (batch_size x chunk_size x head_size)
-        
+
         return out, s_n
 
 
@@ -124,44 +129,46 @@ class GMSRetBlock(nn.Module):
         return self._norm_swish(x, heads)
 
 
-    def forward_rec(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
+    def forward_recurrent(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
         """
         Recursive Version
 
-        x: (batch_size x hidden_size)
-        s_n_1: (batch_size x hidden_size) - previous state
+        x: (batch_size x 1 x hidden_size)
+        s_n_1: (batch_size x n_heads x head_size x head_size) - previous state
         n: int - current step
 
-        Returns: (batch_size x hidden_size), (batch_size x hidden_size)
+        Returns: (batch_size x hidden_size), (batch_size x n_heads x head_size x head_size)
         """
         s_n = []
         heads = []
         for i, ret_block in enumerate(self.ret_blocks):
-            y_i, s_i = ret_block.ret_recurrent(x, s_n_1[:,i*self.hidden_size:(i+1)*self.hidden_size], n)
+            y_i, s_i = ret_block.forward_recurrent(x, s_n_1[:,i], n)
             heads.append(y_i)
-            s_n.append(s_i)
+            s_n.append(jnp.expand_dims(s_i, 1))
         heads = jnp.concatenate(heads, axis=2)
-        s_n = jnp.concatenate(s_n, axis=2)
+        s_n = jnp.concatenate(s_n, axis=1)
+
         return self._norm_swish(x, heads), s_n
 
 
-    def forward_chunk(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
+    def forward_chunkwise(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
         """
         Chunkwise Version
 
         x: (batch_size x chunk_size x hidden_size)
-        s_n_1: (batch_size x hidden_size) - previous state
+        s_n_1: (batch_size x n_heads x head_size x head_size) - previous state
         n: int - current chunk
 
-        Returns: (batch_size x chunk_size x hidden_size), (batch_size x hidden_size)
+        Returns: (batch_size x chunk_size x hidden_size), (batch_size x n_heads x head_size x head_size)
         """
         s_n = []
         y = []
         for i, ret_block in enumerate(self.ret_blocks):
-            y_i, s_i = ret_block.ret_chunkwise(x, s_n_1[:,i*self.hidden_size:(i+1)*self.hidden_size], n)
+            y_i, s_i = ret_block.forward_chunkwise(x, s_n_1[:,i], n)
             y.append(y_i)
-            s_n.append(s_i)
+            s_n.append(jnp.expand_dims(s_i, 1))
         y = jnp.concatenate(y, axis=2)
-        s_n = jnp.concatenate(s_n, axis=2)
+        s_n = jnp.concatenate(s_n, axis=1)
         return self._norm_swish(x, y), s_n
+
 
