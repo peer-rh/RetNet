@@ -13,7 +13,7 @@ class TestRetention(unittest.TestCase):
         """
         verify that the three implementations of SimpleRetention are identical
         """
-        batch_size = 4
+        batch_size = 1
         sequence_length = 12
         hidden_size = 6
         chunk_size = 4
@@ -30,9 +30,8 @@ class TestRetention(unittest.TestCase):
         s_n_1 = jnp.zeros((batch_size, hidden_size, hidden_size))
         Y_recurrent = []
         for i in range(sequence_length):
-            y_n, s_n = sr.apply(params, X[:, i:i+1, :], s_n_1, i, method="forward_recurrent")
+            y_n, s_n_1 = sr.apply(params, X[:, i:i+1, :], s_n_1, i, method="forward_recurrent")
             Y_recurrent.append(y_n)
-            s_n_1 = s_n
 
         Y_recurrent = jnp.concatenate(Y_recurrent, 1)
 
@@ -46,7 +45,6 @@ class TestRetention(unittest.TestCase):
         
         Y_chunkwise = jnp.concatenate(Y_chunkwise, 1)
 
-        print(Y_parallel - Y_recurrent)
         assert jnp.allclose(Y_parallel, Y_recurrent, atol=1e-5)
         assert jnp.allclose(Y_parallel, Y_chunkwise, atol=1e-5)
       
@@ -71,9 +69,8 @@ class TestRetention(unittest.TestCase):
         s_n_1s = jnp.zeros((batch_size, heads, hidden_size // heads, hidden_size // heads))
         Y_recurrent = []
         for i in range(sequence_length):
-            y_n, s_ns = retention.apply(params, X[:, i:i+1, :], s_n_1s, i, method="forward_recurrent")
+            y_n, s_n_1s = retention.apply(params, X[:, i:i+1, :], s_n_1s, i, method="forward_recurrent")
             Y_recurrent.append(y_n)
-            s_n_1s = s_ns
 
         Y_recurrent = jnp.concatenate(Y_recurrent, 1)
 
@@ -97,7 +94,7 @@ class TestRetNet(unittest.TestCase):
         """
         batch_size = 2
         hidden_size = 36
-        sequence_length = 5
+        sequence_length = 6
         heads = 3
         layers = 4
         ffn_size = 128

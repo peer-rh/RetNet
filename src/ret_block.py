@@ -11,10 +11,9 @@ class RetBlock(nn.Module):
     gamma: float
 
     def setup(self) -> None:
-        self.w_q = self.param('w_q', jax.random.normal, (self.hidden_size, self.head_size))
-        self.w_k = self.param('w_k', jax.random.normal, (self.hidden_size, self.head_size))
-        self.w_v = self.param('w_v', jax.random.normal, (self.hidden_size, self.head_size))
-        self.theta = self.param('theta', jax.random.normal, (self.hidden_size, ))
+        self.w_q = self.param('w_q', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
+        self.w_k = self.param('w_k', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
+        self.w_v = self.param('w_v', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
         self.xpos = XPos(self.head_size)
         
     def _create_decay(self, seq_len: int) -> jax.Array:
@@ -55,12 +54,11 @@ class RetBlock(nn.Module):
         k = self.xpos(x @ self.w_k, n+1, downscale=True) # ...
         v = x @ self.w_v # ...
 
-
         s_n = self.gamma * s_n_1 + (k.transpose(0, 2, 1) @ v) # (batch_size x head_size x head_size)
 
-        out = q @ s_n # (batch_size x 1 x head_size)
+        ret = q @ s_n # (batch_size x 1 x head_size)
 
-        return out, s_n 
+        return ret, s_n 
         
     def forward_chunkwise(self, x: jax.Array, s_n_1: jax.Array, n: int) -> Tuple[jax.Array, jax.Array]:
         """
@@ -72,7 +70,7 @@ class RetBlock(nn.Module):
         decay_mask = self._create_decay(x.shape[1])
 
         q = self.xpos(x @ self.w_q, n*x.shape[1]) # (batch_size x chunk_size x head_size)
-        k = self.xpos(x @ self.w_k, n*x.shape[1], downscale=False) # ...
+        k = self.xpos(x @ self.w_k, n*x.shape[1], downscale=True) # ...
         v = x @ self.w_v # ...
         
         zeta = jnp.expand_dims(decay_mask[-1], (0, 2))    
@@ -99,8 +97,8 @@ class GMSRetBlock(nn.Module):
         self.head_size = self.hidden_size // self.n_heads
         self.ret_blocks = [RetBlock(self.hidden_size, self.head_size, 1-2**(-5-i)) for i in range(self.n_heads)]
         self.g_norm = nn.GroupNorm(num_groups=self.n_heads)
-        self.w_o = self.param('w_o', jax.random.normal, (self.hidden_size, self.hidden_size))
-        self.w_g = self.param('w_g', jax.random.normal, (self.hidden_size, self.hidden_size))
+        self.w_o = self.param('w_o', lambda key, size: jax.random.normal(key, size) / self.hidden_size, (self.hidden_size, self.hidden_size))
+        self.w_g = self.param('w_g', lambda key, size: jax.random.normal(key, size) / self.hidden_size, (self.hidden_size, self.hidden_size))
 
     def _norm_swish(self, x: jax.Array, heads: jax.Array) -> jax.Array:
         """
@@ -110,7 +108,7 @@ class GMSRetBlock(nn.Module):
         x: (batch_size x seq_len/chunk_size/1 x hidden_size)
         heads: (batch_size x n_heads x head_size)
         """
-        y = self.g_norm(heads)
+        y = self.g_norm(heads.reshape(-1, self.hidden_size)).reshape(heads.shape)
         tmp = x @ self.w_g
         swish = tmp * nn.sigmoid(tmp)
 
