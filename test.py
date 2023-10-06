@@ -87,7 +87,6 @@ class TestRetention(unittest.TestCase):
         self.assertTrue(jnp.allclose(Y_parallel, Y_chunkwise, atol=1e-5)) # fails
 
 class TestRetNet(unittest.TestCase):
-
     def test_retnet(self):
         """
         verify that the three implementations of RetNet are identical

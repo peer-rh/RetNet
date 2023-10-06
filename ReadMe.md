@@ -1,4 +1,4 @@
-# Implementation of Retentive Networks in JAX
+# RetNet in JAX
 > Paper: Sun, Y., Dong, L., Huang, S., Ma, S., Xia, Y., Xue, J., ... & Wei, F. (2023). Retentive network: A successor to transformer for large language models. arXiv preprint arXiv:2307.08621.
 > Inspiration: https://github.com/Jamie-Stirling/RetNet/tree/maiN
 
