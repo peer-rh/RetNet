@@ -54,7 +54,7 @@ class RetNet(nn.Module):
         x: (batch_size x chunk_size x hidden_size)
         s_n_1: [n_layers x (batch_size x n_heads x head_size x head_size)] - previous state
 
-        Returns: (batch_size x chunk_size x hidden_size) x [n_layers x (batch_size x n_heads x head_size x head_size)]
+        Returns: (batch_size x chunk_size x hidden_size), [n_layers x (batch_size x n_heads x head_size x head_size)]
         """
         s_n = []
         for i in range(self.n_layers):
