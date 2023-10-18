@@ -9,7 +9,7 @@ class RetNet(nn.Module):
     n_heads: int
     n_layers: int
     ffn_size: int
-    dtype: jnp.dtype = jax.float32
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self) -> None:
         self.ret_blocks = [GMSRetBlock(self.hidden_size, self.n_heads, dtype=self.dtype) for _ in range(self.n_layers)]

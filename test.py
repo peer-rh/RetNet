@@ -100,7 +100,7 @@ class TestRetNet(unittest.TestCase):
 
         rand = jax.random.PRNGKey(0)
         X = jax.random.normal(rand, (batch_size, sequence_length, hidden_size))
-        retnet = RetNet(hidden_size, heads, layers, ffn_size)
+        retnet = RetNet(hidden_size, heads, layers, ffn_size, dtype=jnp.float32) # NOTE: High error if we use bfloat16 or float16
         params = retnet.init(rand, X)
 
         Y_parallel = retnet.apply(params, X)
