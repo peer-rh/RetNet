@@ -1,5 +1,6 @@
 from typing import List, Tuple
 import jax
+import jax.numpy as jnp
 import flax.linen as nn
 from src.ret_block import GMSRetBlock
 
@@ -8,19 +9,20 @@ class RetNet(nn.Module):
     n_heads: int
     n_layers: int
     ffn_size: int
+    dtype: jnp.dtype = jax.float32
 
     def setup(self) -> None:
-        self.ret_blocks = [GMSRetBlock(self.hidden_size, self.n_heads) for _ in range(self.n_layers)]
+        self.ret_blocks = [GMSRetBlock(self.hidden_size, self.n_heads, dtype=self.dtype) for _ in range(self.n_layers)]
         self.ffn_s = [
                 nn.Sequential([
-                    nn.Dense(self.ffn_size, use_bias=False),
+                    nn.Dense(self.ffn_size, use_bias=False, dtype=self.dtype),
                     nn.gelu,
-                    nn.Dense(self.hidden_size, use_bias=False),
+                    nn.Dense(self.hidden_size, use_bias=False, dtype=self.dtype),
                 ]) for _ in range(self.n_layers)
             ]
 
-        self.layer_norms_1 = [nn.LayerNorm() for _ in range(self.n_layers)]
-        self.layer_norms_2 = [nn.LayerNorm() for _ in range(self.n_layers)]
+        self.layer_norms_1 = [nn.LayerNorm(dtype=self.dtype) for _ in range(self.n_layers)]
+        self.layer_norms_2 = [nn.LayerNorm(dtype=self.dtype) for _ in range(self.n_layers)]
         return super().setup()
 
     def __call__(self, x: jax.Array) -> jax.Array:

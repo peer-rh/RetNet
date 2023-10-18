@@ -9,12 +9,14 @@ class RetBlock(nn.Module):
     hidden_size: int
     head_size: int
     gamma: float
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self) -> None:
-        self.w_q = self.param('w_q', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
-        self.w_k = self.param('w_k', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
-        self.w_v = self.param('w_v', lambda key: jax.random.normal(key, (self.hidden_size, self.head_size)) / self.hidden_size)
-        self.xpos = XPos(self.head_size)
+        init_w = lambda key, size: jax.random.normal(key, size, dtype=self.dtype) / self.hidden_size
+        self.w_q = self.param('w_q', init_w, (self.hidden_size, self.head_size))
+        self.w_k = self.param('w_k', init_w, (self.hidden_size, self.head_size))
+        self.w_v = self.param('w_v', init_w, (self.hidden_size, self.head_size))
+        self.xpos = XPos(self.head_size, dtype=self.dtype)
         
     def _create_decay(self, seq_len: int) -> jax.Array:
         """
@@ -22,7 +24,7 @@ class RetBlock(nn.Module):
         D_{n, m} = gamma^{n-m} if n >= m else 0
         """
         m = jnp.arange(seq_len)
-        return jnp.tril(self.gamma**(m[:,jnp.newaxis]- m))
+        return jnp.tril(self.gamma**(m[:,jnp.newaxis]- m)).astype(self.dtype)
      
     def __call__(self, x: jax.Array) -> jax.Array:
         """
@@ -91,14 +93,15 @@ class GMSRetBlock(nn.Module):
     """
     hidden_size: int
     n_heads: int
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self) -> None:
         assert self.hidden_size % self.n_heads == 0, "hidden_size must be divisible by heads"
         self.head_size = self.hidden_size // self.n_heads
-        self.ret_blocks = [RetBlock(self.hidden_size, self.head_size, 1-2**(-5-i)) for i in range(self.n_heads)]
-        self.g_norm = nn.GroupNorm(num_groups=self.n_heads)
-        self.w_o = self.param('w_o', lambda key, size: jax.random.normal(key, size) / self.hidden_size, (self.hidden_size, self.hidden_size))
-        self.w_g = self.param('w_g', lambda key, size: jax.random.normal(key, size) / self.hidden_size, (self.hidden_size, self.hidden_size))
+        self.ret_blocks = [RetBlock(self.hidden_size, self.head_size, 1-2**(-5-i), dtype=self.dtype) for i in range(self.n_heads)]
+        self.g_norm = nn.GroupNorm(num_groups=self.n_heads, dtype=self.dtype)
+        self.w_o = self.param('w_o', lambda key, size: jax.random.normal(key, size, dtype=self.dtype) / self.hidden_size, (self.hidden_size, self.hidden_size))
+        self.w_g = self.param('w_g', lambda key, size: jax.random.normal(key, size, dtype=self.dtype) / self.hidden_size, (self.hidden_size, self.hidden_size))
 
     def _norm_swish(self, x: jax.Array, heads: jax.Array) -> jax.Array:
         """

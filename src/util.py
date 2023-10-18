@@ -3,14 +3,14 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-def fixed_pos_embedding(seq_len: int, dim: int) -> Tuple[jax.Array, jax.Array]:
+def fixed_pos_embedding(seq_len: int, dim: int, dtype: jnp.dtype) -> Tuple[jax.Array, jax.Array]:
     """
     Returns:
         sin: (seq_len x dim)
         cos: (seq_len x dim)
     """
     inv_freq = 1.0 / (10000 ** (jnp.arange(0, dim)[:, None] / dim))
-    sinusoid_inp = jnp.dot(jnp.arange(0, seq_len)[:, None], inv_freq.T)
+    sinusoid_inp = jnp.dot(jnp.arange(0, seq_len)[:, None], inv_freq.T).astype(dtype)
 
     sin = jnp.sin(sinusoid_inp)
     cos = jnp.cos(sinusoid_inp)
@@ -47,9 +47,11 @@ def apply_rotary_pos_emb(x: jax.Array, sin: jax.Array, cos: jax.Array, scale: ja
 class XPos(nn.Module):
     head_size: int
     scale_base: int = 512
+    dtype: jnp.dtype = jnp.float32
         
     def setup(self):
         self.scale = (jnp.arange(0 ,self.head_size, 2) + 0.4 * self.head_size )/(1.4*self.head_size)
+        self.scale = self.scale.astype(self.dtype)
 
     def __call__(self, x: jax.Array, offset: int = 0, downscale=False) -> jax.Array:
         """
@@ -61,7 +63,7 @@ class XPos(nn.Module):
         min_pos = 0
         max_pos = min_pos + offset + length
         scale = self.scale ** ((jnp.arange(min_pos, max_pos)/self.scale_base)[:, None]) # (max_pos x 1)
-        sin, cos = fixed_pos_embedding(scale.shape[0], scale.shape[1]) # (max_pos x 1), (max_pos x 1)
+        sin, cos = fixed_pos_embedding(scale.shape[0], scale.shape[1], self.dtype) # (max_pos x 1), (max_pos x 1)
         # "Cut down" to length
         if scale.shape[0] > length:
             scale = scale[-length:]
@@ -84,7 +86,7 @@ class XPos(nn.Module):
         min_pos = -(length + offset) // 2
         max_pos = min_pos + length + offset
         scale = self.scale ** ((jnp.arange(min_pos, max_pos)/self.scale_base)[:, None])
-        sin, cos = fixed_pos_embedding(scale.shape[0], scale.shape[1])
+        sin, cos = fixed_pos_embedding(scale.shape[0], scale.shape[1], self.dtype)
         if scale.shape[0] > length:
             scale = scale[-length:]
             sin = sin[-length:]
